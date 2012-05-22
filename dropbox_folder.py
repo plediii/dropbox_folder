@@ -1,7 +1,9 @@
 
 import os
 
-#from dropbox import client, rest, session
+import configuration
+
+import dropbox
 import time
 
 class DictTokenStore(object):
@@ -30,7 +32,7 @@ tokenstore = DictTokenStore()
 class DropboxHandler(object):
 
     def __init__(self, APP_KEY, APP_SECRET, ACCESS_TYPE):
-        sess = self.session = session.DropboxSession(APP_KEY, APP_SECRET, ACCESS_TYPE)
+        sess = self.session = dropbox.session.DropboxSession(APP_KEY, APP_SECRET, ACCESS_TYPE)
 
         self.__client = None
 
@@ -42,7 +44,7 @@ class DropboxHandler(object):
         access_token = self.get_access_token()
         if access_token:
             self.session.token = access_token
-            self.__client = client.DropboxClient(self.session)
+            self.__client = dropbox.client.DropboxClient(self.session)
             return self.__client
 
         return None
@@ -113,19 +115,5 @@ dropboxhandler = DropboxHandler(APP_KEY=configuration.dropbox.APP_KEY,
                                APP_SECRET=configuration.dropbox.APP_SECRET,
                                ACCESS_TYPE=configuration.dropbox.ACCESS_TYPE)
 
-class DropboxRead(webapp2.RequestHandler):
 
-    def get(self):
-        self.response.headers['Content-type'] = "application/json"
-        path = self.request.get('path')
-        self.response.out.write(json.dumps(dropboxhandler.contents(path)))
-
-
-class DropboxList(webapp2.RequestHandler):
-
-    def get(self):
-        self.response.headers['Content-type'] = "application/json"
-        path = self.request.get('path')
-        self.response.out.write(dropboxhandler.list(path))
-
-
+print dropboxhandler.list()
