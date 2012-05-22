@@ -1,14 +1,14 @@
 
+import os
 import ConfigParser
 
 class Dropbox(object):
 
     section='DROPBOX'
-    
 
     def __init__(self, filename):
         config = self.config = ConfigParser.SafeConfigParser()
-        config.read('dropboxapp.ini')
+        config.read(filename)
 
         section = self.section
 
@@ -23,7 +23,9 @@ class Configuration(object):
 
 
     def __init__(self):
-        self.dropbox = Dropbox('dropboxapp.ini')
+        mypath = os.path.dirname(__file__)
+        config_path = os.path.join(mypath, 'dropboxapp.ini')
+        self.dropbox = Dropbox(config_path)
 
 
 configuration = Configuration()
