@@ -3,12 +3,16 @@ The main client API you'll be working with most often.  You'll need to
 configure a dropbox.session.DropboxSession for this to work, but otherwise
 it's fairly self-explanatory.
 """
+from __future__ import absolute_import
 
 import re
-import simplejson as json
 
-from dropbox.rest import ErrorResponse
-from dropbox.rest import RESTClient
+try:
+    import json
+except ImportError:
+    import simplejson as json
+
+from .rest import ErrorResponse, RESTClient
 
 def format_path(path):
     """Normalize path for use with the Dropbox API.
@@ -23,7 +27,7 @@ def format_path(path):
     path = re.sub(r'/+', '/', path)
 
     if path == '/':
-        return ""
+        return (u"" if isinstance(path, unicode) else "")
     else:
         return '/' + path.strip('/')
 
@@ -41,13 +45,15 @@ class DropboxClient(object):
     point indicates that the user needs to be reauthenticated.
     """
 
-    def __init__(self, session):
+    def __init__(self, session, rest_client=RESTClient):
         """Initialize the DropboxClient object.
 
         Args:
             session: A dropbox.session.DropboxSession object to use for making requests.
+            rest_client: A dropbox.rest.RESTClient-like object to use for making requests. [optional]
         """
         self.session = session
+        self.rest_client = rest_client
 
     def request(self, target, params=None, method='POST', content_server=False):
         """Make an HTTP request to a target API method.
@@ -95,7 +101,7 @@ class DropboxClient(object):
         """
         url, params, headers = self.request("/account/info", method='GET')
 
-        return RESTClient.GET(url, headers)
+        return self.rest_client.GET(url, headers)
 
 
     def put_file(self, full_path, file_obj, overwrite=False, parent_rev=None):
@@ -146,7 +152,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request(path, params, method='PUT', content_server=True)
 
-        return RESTClient.PUT(url, file_obj, headers)
+        return self.rest_client.PUT(url, file_obj, headers)
 
     def get_file(self, from_path, rev=None):
         """Download a file.
@@ -174,7 +180,7 @@ class DropboxClient(object):
             params['rev'] = rev
 
         url, params, headers = self.request(path, params, method='GET', content_server=True)
-        return RESTClient.request("GET", url, headers=headers, raw_response=True)
+        return self.rest_client.request("GET", url, headers=headers, raw_response=True)
 
     def get_file_and_metadata(self, from_path, rev=None):
         """Download a file alongwith its metadata.
@@ -271,7 +277,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request(path, params)
 
-        return RESTClient.POST(url, params, headers)
+        return self.rest_client.POST(url, params, headers)
 
 
     def create_copy_ref(self, from_path):
@@ -289,9 +295,9 @@ class DropboxClient(object):
         """
         path = "/copy_ref/%s%s" % (self.session.root, format_path(from_path))
 
-        url, params, headers = self.request(path, {})
+        url, params, headers = self.request(path, {}, method='GET')
 
-        return RESTClient.GET(url, headers)
+        return self.rest_client.GET(url, headers)
 
     def add_copy_ref(self, copy_ref, to_path):
         """Adds the file referenced by the copy ref to the specified path
@@ -312,7 +318,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request(path, params)
 
-        return RESTClient.POST(url, params, headers)
+        return self.rest_client.POST(url, params, headers)
 
     def file_copy(self, from_path, to_path):
         """Copy a file or folder to a new location.
@@ -346,7 +352,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request("/fileops/copy", params)
 
-        return RESTClient.POST(url, params, headers)
+        return self.rest_client.POST(url, params, headers)
 
 
     def file_create_folder(self, path):
@@ -370,7 +376,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request("/fileops/create_folder", params)
 
-        return RESTClient.POST(url, params, headers)
+        return self.rest_client.POST(url, params, headers)
 
 
     def file_delete(self, path):
@@ -395,7 +401,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request("/fileops/delete", params)
 
-        return RESTClient.POST(url, params, headers)
+        return self.rest_client.POST(url, params, headers)
 
 
     def file_move(self, from_path, to_path):
@@ -426,10 +432,10 @@ class DropboxClient(object):
 
         url, params, headers = self.request("/fileops/move", params)
 
-        return RESTClient.POST(url, params, headers)
+        return self.rest_client.POST(url, params, headers)
 
 
-    def metadata(self, path, list=True, file_limit=10000, hash=None, rev=None, include_deleted=False):
+    def metadata(self, path, list=True, file_limit=25000, hash=None, rev=None, include_deleted=False):
         """Retrieve metadata for a file or folder.
 
         Args:
@@ -440,7 +446,7 @@ class DropboxClient(object):
             file_limit: The maximum number of file entries to return within
                 a folder. If the number of files in the directory exceeds this
                 limit, an exception is raised. The server will return at max
-                10,000 files within a folder.
+                25,000 files within a folder.
             hash: Every directory listing has a hash parameter attached that
                 can then be passed back into this function later to save on\
                 bandwidth. Rather than returning an unchanged folder's contents,\
@@ -480,7 +486,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request(path, params, method='GET')
 
-        return RESTClient.GET(url, headers)
+        return self.rest_client.GET(url, headers)
 
     def thumbnail(self, from_path, size='large', format='JPEG'):
         """Download a thumbnail for an image.
@@ -512,7 +518,7 @@ class DropboxClient(object):
         path = "/thumbnails/%s%s" % (self.session.root, format_path(from_path))
 
         url, params, headers = self.request(path, {'size': size, 'format': format}, method='GET', content_server=True)
-        return RESTClient.request("GET", url, headers=headers, raw_response=True)
+        return self.rest_client.request("GET", url, headers=headers, raw_response=True)
 
     def thumbnail_and_metadata(self, from_path, size='large', format='JPEG'):
         """Download a thumbnail for an image alongwith its metadata.
@@ -578,10 +584,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request(path, params)
 
-        print "--- URL: %r" % url
-        print "       : %r" % params
-
-        return RESTClient.POST(url, params, headers)
+        return self.rest_client.POST(url, params, headers)
 
     def revisions(self, path, rev_limit=1000):
         """Retrieve revisions of a file.
@@ -612,7 +615,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request(path, params, method='GET')
 
-        return RESTClient.GET(url, headers)
+        return self.rest_client.GET(url, headers)
 
     def restore(self, path, rev):
         """Restore a file to a previous revision.
@@ -641,7 +644,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request(path, params)
 
-        return RESTClient.POST(url, params, headers)
+        return self.rest_client.POST(url, params, headers)
 
     def media(self, path):
         """Get a temporary unauthenticated URL for a media file.
@@ -673,7 +676,7 @@ class DropboxClient(object):
 
         url, params, headers = self.request(path, method='GET')
 
-        return RESTClient.GET(url, headers)
+        return self.rest_client.GET(url, headers)
 
     def share(self, path):
         """Create a shareable link to a file or folder.
@@ -704,4 +707,4 @@ class DropboxClient(object):
 
         url, params, headers = self.request(path, method='GET')
 
-        return RESTClient.GET(url, headers)
+        return self.rest_client.GET(url, headers)
