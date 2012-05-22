@@ -1,114 +1,111 @@
 
 import os
 
-import configuration
+from configuration import configuration
 
 import dropbox
 import time
 
-class DictTokenStore(object):
+# class DictTokenStore(object):
 
-    def __init__(self):
-        self.d = {}
+#     def __init__(self):
+#         self.d = {}
     
-    def name(self, namespace, token):
-        return namespace + '_' + token
+#     def name(self, namespace, token):
+#         return namespace + '_' + token
 
-    def get(self, namespace, token):
-        name = self.name(namespace, token)
+#     def get(self, namespace, token):
+#         name = self.name(namespace, token)
 
+#         try:
+#             return self.d[name]
+#         except KeyError:
+#             return None
+
+#     def set(self, namespace, token, val):
+#         name = self.name(namespace, token)
+
+#         self.d[name] = val
+
+# tokenstore = DictTokenStore()
+
+class StoredSession(dropbox.session.DropboxSession):
+    """a wrapper around DropboxSession that stores a token to a file on disk
+
+    Taken from dropbox cli_client.py example.
+    """
+    TOKEN_FILE = "token_store.txt"
+
+    def load_creds(self):
         try:
-            return self.d[name]
-        except KeyError:
-            return None
+            stored_creds = open(self.TOKEN_FILE).read()
+            self.set_token(*stored_creds.split('|'))
+            print "[loaded access token]"
+        except IOError:
+            pass # don't worry if it's not there
 
-    def set(self, namespace, token, val):
-        name = self.name(namespace, token)
+    def write_creds(self, token):
+        f = open(self.TOKEN_FILE, 'w')
+        f.write("|".join([token.key, token.secret]))
+        f.close()
 
-        self.d[name] = val
+    def delete_creds(self):
+        os.unlink(self.TOKEN_FILE)
 
-tokenstore = DictTokenStore()
+    def link(self):
+        request_token = self.obtain_request_token()
+        url = self.build_authorize_url(request_token)
+        print "url:", url
+        print "Please authorize in the browser. After you're done, press enter."
+        raw_input()
+
+        self.obtain_access_token(request_token)
+        self.write_creds(self.token)
+
+    def unlink(self):
+        self.delete_creds()
+        session.DropboxSession.unlink(self)
+
 
 class DropboxHandler(object):
 
     def __init__(self, APP_KEY, APP_SECRET, ACCESS_TYPE):
-        sess = self.session = dropbox.session.DropboxSession(APP_KEY, APP_SECRET, ACCESS_TYPE)
+        sess = self.session = StoredSession(APP_KEY, APP_SECRET, access_type=ACCESS_TYPE)
+        sess.load_creds()
+        self.client = dropbox.client.DropboxClient(sess)
 
-        self.__client = None
+    class LoginRequired(Exception):
+        def __init__(self, url):
+            self.url = url
 
-
-    def get_client(self):
-        if self.__client:
-            return self.__client
-
-        access_token = self.get_access_token()
-        if access_token:
-            self.session.token = access_token
-            self.__client = dropbox.client.DropboxClient(self.session)
-            return self.__client
-
-        return None
-            
-
-    def set_request_token(self, request_token):
-        tokenstore.set('dropbox', 'request', request_token)        
-
-    def new_request_token(self):
-        request_token = self.session.obtain_request_token()
-        self.set_request_token(request_token)
-        return request_token
-
-    def get_request_token(self):
-        request_token = tokenstore.get('dropbox', 'request')
-        if request_token:
-            return request_token
-        return self.new_request_token()
-
-    def new_access_token(self):
-        request_token = self.get_request_token()
-        access_token=self.session.obtain_access_token(request_token)
-        tokenstore.set('dropbox', 'access', access_token)
-        return access_token
-
-    def get_access_token(self):
-        access_token = tokenstore.get('dropbox', 'access')
-        if access_token:
-            return access_token
-        return self.new_access_token()
-
+        
+    class FileNotExist(Exception):
+        pass
 
     def dropbox_accessor(func):
         def new_func(self, *args, **kwargs):
-            exc = 'None'
-            try:
-                login = None
-                val = None
-                val = func(self, *args, **kwargs)
-                status = True
-            except rest.ErrorResponse, e:
-                request_token = self.new_request_token()
-                login = self.session.build_authorize_url(request_token)
-                status = False
-                exc = str(e)
-            result = {'success': status,
-                        'value': val,
-                        'exc': exc}
-            if login:
-                    result['login'] = login
-            return result
+            while not self.session.is_linked():
+                self.session.link()
+            return func(self, *args, **kwargs)
         return new_func
 
 
     @dropbox_accessor
     def list(self, path='/'):
-        cli = self.get_client()
-        return [meta for meta  in cli.metadata(path)['contents']]
+        return [meta for meta  in self.client.metadata(path)['contents']]
 
 
     @dropbox_accessor
     def contents(self, path):
-        cli = self.get_client()
-        return cli.get_file_and_metadata(path)[0].read()
+        try:
+            f, metadata = self.client.get_file_and_metadata("/" + path)
+        except dropbox.rest.ErrorResponse as e:
+            if e.status == 404:
+                raise self.FileNotExist(path)
+            else:
+                raise
+        # print 'Metadata:', metadata
+        return f.read()
             
 
 dropboxhandler = DropboxHandler(APP_KEY=configuration.dropbox.APP_KEY,
@@ -116,4 +113,25 @@ dropboxhandler = DropboxHandler(APP_KEY=configuration.dropbox.APP_KEY,
                                ACCESS_TYPE=configuration.dropbox.ACCESS_TYPE)
 
 
-print dropboxhandler.list()
+
+
+def sync_folder(target_path):
+    l = dropboxhandler.list()
+
+
+    for f in l:
+        if not f['is_dir']:
+            path = f['path']
+            to_path = os.path.join(target_path, path[1:])
+            filename = os.path.expanduser(to_path)
+            print filename
+            try:
+                contents = dropboxhandler.contents(path)
+            except:
+                print 'excetion on ', f
+                raise
+            with open(filename, "wb") as to_file:
+                to_file.write(contents)
+    
+
+sync_folder('./test/')
