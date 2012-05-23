@@ -23,7 +23,7 @@ except ImportError:
 from . import rest
 
 class OAuthToken(object):
-    __slots__ = ('key', 'secret')
+    # __slots__ = ('key', 'secret')
     def __init__(self, key, secret):
         self.key = key
         self.secret = secret
