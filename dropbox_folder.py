@@ -125,8 +125,12 @@ class StoredSession(dropbox.session.DropboxSession):
 
 class DropboxHandler(object):
 
-    def __init__(self, APP_KEY, APP_SECRET, ACCESS_TYPE):
-        sess = self.session = StoredSession('', APP_KEY, APP_SECRET, access_type=ACCESS_TYPE)
+    def __init__(self, name, 
+                 APP_KEY=configuration.dropbox.APP_KEY,
+                 APP_SECRET=configuration.dropbox.APP_SECRET,
+                 ACCESS_TYPE=configuration.dropbox.ACCESS_TYPE):
+        self.name = name
+        sess = self.session = StoredSession(name, APP_KEY, APP_SECRET, access_type=ACCESS_TYPE)
         sess.load_creds()
         self.client = dropbox.client.DropboxClient(sess)
 
@@ -141,6 +145,13 @@ class DropboxHandler(object):
                 self.session.link()
             return func(self, *args, **kwargs)
         return new_func
+
+    def logged_in(self):
+        return self.session.is_linked()
+
+    @dropbox_accessor
+    def login(self):
+        pass
 
 
     @dropbox_accessor
@@ -159,33 +170,28 @@ class DropboxHandler(object):
                 raise
         # print 'Metadata:', metadata
         return f.read()
-            
-
-dropboxhandler = DropboxHandler(APP_KEY=configuration.dropbox.APP_KEY,
-                               APP_SECRET=configuration.dropbox.APP_SECRET,
-                               ACCESS_TYPE=configuration.dropbox.ACCESS_TYPE)
 
 
+    def sync_folder(self, target_path):
+        l = self.list()
 
 
-def sync_folder(target_path):
-    l = dropboxhandler.list()
+        for f in l:
+            if not f['is_dir']:
+                path = f['path']
+                to_path = os.path.join(target_path, path[1:])
+                filename = os.path.expanduser(to_path)
+                print filename
+                try:
+                    contents = self.contents(path)
+                except:
+                    print 'exception on ', f
+                    raise
+                with open(filename, "wb") as to_file:
+                    to_file.write(contents)
 
-
-    for f in l:
-        if not f['is_dir']:
-            path = f['path']
-            to_path = os.path.join(target_path, path[1:])
-            filename = os.path.expanduser(to_path)
-            print filename
-            try:
-                contents = dropboxhandler.contents(path)
-            except:
-                print 'excetion on ', f
-                raise
-            with open(filename, "wb") as to_file:
-                to_file.write(contents)
     
 if __name__ == "__main__":
     print 'testing...'
-    sync_folder('./test/')
+    handler = DropboxHandler('test')
+    handler.sync_folder('./test/')
