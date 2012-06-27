@@ -4,6 +4,7 @@ import cPickle as pickle
 import shutil
 import tempfile
 
+import contextlib as cl
 from configuration import configuration
 
 import dropbox
@@ -133,214 +134,98 @@ def prepend_slash(path):
     else:
         return path
 
-class DropboxFile(object):
-    """Invariant: contents of file in path corresponds to metadata."""
+class FileStore(object):
+
+    def __init__(self, target_path):
+        print 'init filestore'
+        self.target_path = target_path
+        self.cursor = None
+
+    def local_path(self, dropbox_path):
+        # this isn't really portable...
+        if dropbox_path != '' and dropbox_path[0] == '/':
+            dropbox_path = dropbox_path[1:]
+        print 'local_path = "%s" + "%s"' % (self.target_path, dropbox_path)
+        local_path =  os.path.join(self.target_path, dropbox_path)
+        print '..."%s"' % local_path
+        return local_path
+        
+    def new_file(self, client, dropboxpath, metadata):
+        if metadata['is_dir']:
+            os.mkdir(self.local_path(dropboxpath))
+            metadata = client.metadata(dropboxpath)
+        else:
+            with cl.closing(client.get_file(dropboxpath)) as f:
+                print 'local_path = ', self.local_path(dropboxpath)
+                with open(self.local_path(dropboxpath), 'w') as g:
+                    g.write(f.read())
+
+        self.allfiles[metadata['path']] = metadata
+
+
+    def rm_file(self, dropboxpath):
+        metadata = self.allfiles[dropboxpath]
+        localpath = self.localpath(dropboxpath)
+        if metadata['is_dir']:
+            os.rmdir(localpath)
+        else:
+            os.remove(localpath)
 
     class NotExist(Exception):
         pass
 
-    def __init__(self, target_path, path):
-        path = prepend_slash(path)
-        self.path = path
-        self.target_path = target_path
-        self.local_path = os.path.join(target_path, path[1:])
-
-        self.metadata = {'path': path, 
-                         'is_dir': False}
-
-
-    def synch(self, client):
-        try:
-            f, self.metadata = client.get_file_and_metadata("/" + self.path)
-        except dropbox.rest.ErrorResponse as e:
-            if e.status == 404:
-                raise self.NotExist(path)
-            else:
-                raise
+    def get_file(self, dropboxpath):
+        if dropboxpath in self.allfiles:
+            return self.allfiles[dropboxpath]
         else:
-            print 'synchronizing ', self.local_path
-            with open(self.local_path, 'w')  as localf:
-                localf.write(f.read())
+            raise NotExist(dropboxpath)
 
-    @property
-    def is_dir(self):
-        return self.metadata['is_dir']
-
-    def __str__(self):
-        return '< dropbox::%s >' % self.path
-
-
-    def __repr__(self):
-        return "DropboxFile('%s', '%s')" % (self.target_path, self.path)
+    def get_list(self, dropboxpath):
+        if dropboxpath in self.allfiles:
+            f = self.allfiles[dropboxpath]
+            if f['is_dir']:
+                return f['contents']
+            else:
+                return [f]
+        else:
+            raise self.NotExist(dropboxpath)
 
 
-    def contents(self):
-        if os.path.exists(self.local_path):
-            with open(self.local_path) as f:
+    def get_parent(self, dropboxpath):
+        if dropboxpath in self.allfiles:
+            last_slash = dropboxpath.rfind('/')
+            return dropboxpath[:last_slash]
+        else:
+            raise self.NotExist(dropboxpath)
+
+
+    def get_contents(self, dropboxpath):
+        if dropboxpath in self.allfiles:
+            with open(self.local_path(dropboxpath)) as f:
                 return f.read()
         else:
-            raise Exception("not reachable")
-        
-    def metadata(self):
-        return self.metadata
+            raise NotExist(dropboxpath)
 
 
-    def release(self):
-        os.remove(self.local_path)
+    def reset(self, client):
+        self.allfiles = {}
+        self.cursor = None
+        target_path = self.target_path
+        if os.path.exists(target_path):
+            shutil.rmtree(target_path)
+        print 'resetting'
+        os.mkdir(target_path)
+        self.allfiles[u'/'] = client.metadata(u'/')
 
 
-class DropboxFolder(DropboxFile):
-    """Invariant: contents of file in path corresponds to metadata."""
 
-    class NotExist(Exception):
-        pass
-
-    def __init__(self, target_path, path):
-        path = prepend_slash(path)
-        path = unicode(path)
-        if path[-1] == '/':
-            path = path[:-1]
-        
-        self.path = path
-        self.target_path = target_path
-        self.local_path = os.path.join(target_path, path[1:])
-
-        self.files = []
-        self.metadata = {'path': path,
-                         'is_dir': False}
-
-        self.__collect_allfiles()
-
-
-    def __collect_allfiles(self):
-        allfiles = self.allfiles = {self.path: self}
-        for f in self.files:
-            print f.path, ': ', f.is_dir
-            if f.is_dir:
-                for g in f.allfiles.values():
-                    allfiles[g.path] = g
-
-
-            self.allfiles[f.path] = f
-
-    def getfile(self, path):
-        path = unicode(prepend_slash(path))
-        if path[-1] == '/':
-            path = path[:-1]
-
-        try:
-            return self.allfiles[path]
-        except KeyError:
-            raise self.NotExist(path)
-
-
-    def synch(self, client):
-        print 'synchronizing ', self.local_path
-        try:
-            self.metadata = client.metadata(self.path)
-        except dropbox.rest.ErrorResponse as e:
-            if e.status == 404:
-                raise self.NotExist(path)
-            else:
-                raise
-
-        # make the local directory to hold the files
-        try:
-            os.mkdir(self.local_path)
-        except OSError:
-            pass
-        # download each of the files in the dropbox folder
-        self.files = []
-        for meta in self.metadata['contents']:
-            if meta['is_dir']:
-                f = DropboxFolder(self.target_path, meta['path'])
-
-            else:
-                f = DropboxFile(self.target_path, meta['path'])
-
-            f.synch(client)
-            self.files.append(f)
-
-        self.__collect_allfiles()
-
-        return self.allfiles
-            
-
-    def __str__(self):
-        return '< dropbox::%s >' % self.path
-
-
-    def __repr__(self):
-        return "DropboxFolder('%s', '%s')" % (self.target_path, self.path)
-
-
-    def metadata(self):
-        return self.metadata
-
-    def list(self, subpath=''):
-
-        print 'listing'
-        print repr(subpath)
-        print 'below'
-        print repr(self.path)
-
-        print self.allfiles
-        f = self.getfile(subpath)
-        if f is self:
-            return f.files
-        elif f.is_dir:
-            return f.list(subpath)
-        else:
-            return [f]
-
-            
-
-
-    def release(self):
-        for f in self.files:
-            f.release()
-        os.rmdir(self.local_path)
-            
-
-    
-
-            
-            
-# class LocalFolderStore(object):
-
-#     def __init__(self, target_path=None, keep=None):
-#         if target_path is None:
-#             target_path = tempfile.mkdtemp(name)
-#             if keep is None:
-#                 keep = False
-#         else:
-#             if keep is None:
-#                 keep = True
-
-#         storepath = self.storepath = os.path.join(target_path, '.dfstore')
-
-#         if os.path.exists(storepath):
-#             with open(storepath) as f:
-#                 self.rootpath = pickle.loads(f.read())
-#         else:
-#             self.rootpath = 
-
-
-#     def close(self):
-#         if self.keep:
-#             self.commit()
-#             return
-#         else:
-#             self.rootpath.release()
-        
-     
-
+class FileNotExist(Exception):
+    pass
 
 class DropboxHandler(object):
 
     def __init__(self, name, 
-                 target_path=None,
-                 keep=None,
+                 file_store,
                  APP_KEY=configuration.dropbox.APP_KEY,
                  APP_SECRET=configuration.dropbox.APP_SECRET,
                  ACCESS_TYPE=configuration.dropbox.ACCESS_TYPE):
@@ -348,18 +233,9 @@ class DropboxHandler(object):
         sess = self.session = StoredSession(name, APP_KEY, APP_SECRET, access_type=ACCESS_TYPE)
         sess.load_creds()
         client = self.client = dropbox.client.DropboxClient(sess)
+        self.file_store = file_store
             
-        if target_path is None:
-            if keep is None:
-                keep = False
-            target_path = tempfile.mkdtemp(name)
-        elif keep is None:
-            keep = True
-        self.target_path = target_path
-
-        self.root = DropboxFolder(target_path, '/')
-
-        # self.root.synch(client)
+        self.synch()
 
 
     def close(self):
@@ -376,50 +252,68 @@ class DropboxHandler(object):
         return self.session.is_linked()
 
     @dropbox_accessor
+    def synch(self):
+        file_store = self.file_store
+        client = self.client
+        while True:
+            delta = client.delta(file_store.cursor)
+            print 'delta = ', delta
+            if delta['reset']:
+                file_store.reset(client)
+
+            for path, metadata in delta['entries']:
+                if metadata is None:
+                    file_store.rm_file(path)
+                else:
+                    file_store.new_file(client, path, metadata)
+
+            file_store.cursor = delta['cursor']
+
+            if not delta['has_more']:
+                break
+
+        print self.file_store.allfiles
+
+    @property
+    def target_path(self):
+        return self.file_store.target_path
+
+
+    @dropbox_accessor
     def login(self):
         pass
 
 
     @dropbox_accessor
-    def list(self, path='/'):            
-        self.root.synch(self.client)
-        return self.root.list(path)
-
+    def list(self, path='/'):
+        if path != '/' and path[-1] == '/':
+            path = path[:-1]
+        self.synch()
+        try:
+            return self.file_store.get_list(path)
+        except self.file_store.NotExist:
+            raise FileNotExist(path)
 
     @dropbox_accessor
     def contents(self, path):
-        self.root.synch(self.client)
-        if path[0] != '/':
-            path = '/' + path
+        self.synch()
+        try:
+            return self.file_store.get_contents(path)
+        except file_store.NotExist:
+            raise FileNotExist(path)
 
-        if path in self.file_state:
-            return 
-
-
-            try:
-                f, metadata = self.client.get_file_and_metadata("/" + path)
-            except dropbox.rest.ErrorResponse as e:
-                if e.status == 404:
-                    raise self.FileNotExist(path)
-                else:
-                    raise
-            # print 'Metadata:', metadata
-            return f.read()
-
-
-    @dropbox_accessor
-    def sync_folder(self):
-        self.root.synch(self.client)
 
 def test_list(handler, target_path):
-    print 'listing "%s"' % target_path
+    print '****listing "%s"' % target_path
 
-    handler.list(target_path)
+    print handler.list(target_path)
 
 
 if __name__ == "__main__":
     print 'testing...'
-    handler = DropboxHandler('test', target_path='./test/')
+    handler = DropboxHandler('test', 
+                             file_store=FileStore('./test/'))
+
     test_list(handler, '/')
     test_list(handler, '/subtest')
     test_list(handler, '/subtest/')
