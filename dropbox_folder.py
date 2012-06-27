@@ -274,6 +274,11 @@ class DropboxHandler(object):
 
         print self.file_store.allfiles
 
+    @property
+    def target_path(self):
+        return self.file_store.target_path
+
+
     @dropbox_accessor
     def login(self):
         pass
