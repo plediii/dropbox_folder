@@ -137,7 +137,6 @@ def prepend_slash(path):
 class FileStore(object):
 
     def __init__(self, target_path):
-        print 'init filestore'
         self.target_path = target_path
         self.cursor = None
 
@@ -145,9 +144,7 @@ class FileStore(object):
         # this isn't really portable...
         if dropbox_path != '' and dropbox_path[0] == '/':
             dropbox_path = dropbox_path[1:]
-        print 'local_path = "%s" + "%s"' % (self.target_path, dropbox_path)
         local_path =  os.path.join(self.target_path, dropbox_path)
-        print '..."%s"' % local_path
         return local_path
         
     def new_file(self, client, dropboxpath, metadata):
@@ -156,20 +153,29 @@ class FileStore(object):
             metadata = client.metadata(dropboxpath)
         else:
             with cl.closing(client.get_file(dropboxpath)) as f:
-                print 'local_path = ', self.local_path(dropboxpath)
                 with open(self.local_path(dropboxpath), 'w') as g:
                     g.write(f.read())
 
         self.allfiles[metadata['path']] = metadata
 
+        parentpath = self.get_parent(metadata['path'])
+        print 'updating metadat of "%s"' % parentpath
+        self.allfiles[parentpath] = client.metadata(parentpath)
+
 
     def rm_file(self, dropboxpath):
-        metadata = self.allfiles[dropboxpath]
-        localpath = self.localpath(dropboxpath)
+        print '%%%%%%%%%%%%%%%%%% removing ', dropboxpath
+        try:
+            metadata = self.allfiles[dropboxpath]
+        except KeyError:
+            raise self.NotExist(dropboxpath)
+        localpath = self.local_path(dropboxpath)
         if metadata['is_dir']:
             os.rmdir(localpath)
         else:
             os.remove(localpath)
+
+        del self.allfiles[dropboxpath]
 
     class NotExist(Exception):
         pass
@@ -184,6 +190,7 @@ class FileStore(object):
         if dropboxpath in self.allfiles:
             f = self.allfiles[dropboxpath]
             if f['is_dir']:
+                print 'store directory list ', f['contents']
                 return f['contents']
             else:
                 return [f]
@@ -194,7 +201,10 @@ class FileStore(object):
     def get_parent(self, dropboxpath):
         if dropboxpath in self.allfiles:
             last_slash = dropboxpath.rfind('/')
-            return dropboxpath[:last_slash]
+            if last_slash > 0:
+                return dropboxpath[:last_slash]
+            else:
+                return '/'
         else:
             raise self.NotExist(dropboxpath)
 
@@ -213,7 +223,6 @@ class FileStore(object):
         target_path = self.target_path
         if os.path.exists(target_path):
             shutil.rmtree(target_path)
-        print 'resetting'
         os.mkdir(target_path)
         self.allfiles[u'/'] = client.metadata(u'/')
 
@@ -271,8 +280,6 @@ class DropboxHandler(object):
 
             if not delta['has_more']:
                 break
-
-        print self.file_store.allfiles
 
     @property
     def target_path(self):
