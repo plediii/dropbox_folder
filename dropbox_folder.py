@@ -159,12 +159,10 @@ class FileStore(object):
         self.allfiles[metadata['path']] = metadata
 
         parentpath = self.get_parent(metadata['path'])
-        print 'updating metadat of "%s"' % parentpath
         self.allfiles[parentpath] = client.metadata(parentpath)
 
 
     def rm_file(self, dropboxpath):
-        print '%%%%%%%%%%%%%%%%%% removing ', dropboxpath
         try:
             metadata = self.allfiles[dropboxpath]
         except KeyError:
@@ -190,7 +188,6 @@ class FileStore(object):
         if dropboxpath in self.allfiles:
             f = self.allfiles[dropboxpath]
             if f['is_dir']:
-                print 'store directory list ', f['contents']
                 return f['contents']
             else:
                 return [f]
@@ -266,7 +263,6 @@ class DropboxHandler(object):
         client = self.client
         while True:
             delta = client.delta(file_store.cursor)
-            print 'delta = ', delta
             if delta['reset']:
                 file_store.reset(client)
 
@@ -322,10 +318,10 @@ if __name__ == "__main__":
                              file_store=FileStore('./test/'))
 
     test_list(handler, '/')
-    test_list(handler, '/subtest')
-    test_list(handler, '/subtest/')
-    test_list(handler, '/subtest/subsubtest')
-    test_list(handler, '/subtest/samplefile.tex')
-    test_list(handler, '/subtest/subsubtest/helloo.tex')
+    # test_list(handler, '/subtest')
+    # test_list(handler, '/subtest/')
+    # test_list(handler, '/subtest/subsubtest')
+    # test_list(handler, '/subtest/samplefile.tex')
+    # test_list(handler, '/subtest/subsubtest/helloo.tex')
     # handler.close()
     # handler.sync_folder()
