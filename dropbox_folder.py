@@ -146,6 +146,25 @@ class FileStore(object):
             dropbox_path = dropbox_path[1:]
         local_path =  os.path.join(self.target_path, dropbox_path)
         return local_path
+
+    def local_to_dropbox_path(self, local_path):
+        return os.path.relpath(local_path, self.target_path)
+
+    def create_file(self, client, dropbox_path, current_path):
+        local_path =  os.path.join(self.target_path, dropbox_path)
+        try:
+            shutil.copy(current_path, local_path)
+        except shutil.Error:
+            pass
+
+        with open(local_path) as f:
+            metadata= self.allfiles[dropbox_path] = client.put_file(dropbox_path, f, overwrite=True)
+            
+        parentpath = self.get_parent(dropbox_path)
+        self.allfiles[parentpath] = client.metadata(parentpath)
+        
+        return metadata
+        
         
     def new_file(self, client, dropboxpath, metadata):
         if metadata['is_dir']:
@@ -257,6 +276,15 @@ class DropboxHandler(object):
     def logged_in(self):
         return self.session.is_linked()
 
+
+    def add_file(self, localpath):
+        dropbox_path = self.file_store.local_to_dropbox_path(localpath)
+        return self.file_store.create_file(self.client, dropbox_path, localpath)
+
+    @dropbox_accessor
+    def media(self, dropbox_path):
+        return self.client.media(dropbox_path)
+
     @dropbox_accessor
     def synch(self):
         file_store = self.file_store
@@ -304,6 +332,9 @@ class DropboxHandler(object):
             return self.file_store.get_contents(path)
         except file_store.NotExist:
             raise FileNotExist(path)
+
+    def local_to_dropbox_path(self, local_path):
+        return self.file_store.local_to_dropbox_path(local_path)
 
 
 def test_list(handler, target_path):
