@@ -2,47 +2,11 @@
 import os
 import cPickle as pickle
 import shutil
-import tempfile
 
 import contextlib as cl
 from configuration import configuration
 
 import dropbox
-import time
-
-# class DictTokenStore(object):
-
-#     def __init__(self):
-#         self.d = {}
-    
-#     def name(self, namespace, token):
-#         return namespace + '_' + token
-
-#     def get(self, namespace, token):
-#         name = self.name(namespace, token)
-
-#         try:
-#             return self.d[name]
-#         except KeyError:
-#             return None
-
-#     def set(self, namespace, token, val):
-#         name = self.name(namespace, token)
-
-#         self.d[name] = val
-
-# tokenstore = DictTokenStore()
-
-
-class TextTokenStore(object):
-
-    def __init__(self, name):
-        self.token_filename = 'token_store_%s.txt'
-        
-    def get_creds(self, cred):
-        with open(self.token_filename) as f:
-            pickle.loads(f.read())
-        
 
 class Creds(object):
     def __init__(self, request=None, access=None):
